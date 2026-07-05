@@ -1,4 +1,7 @@
 from pydantic import BaseModel
+from sqlalchemy import Column, Integer, String
+from database import Base
+
 
 # Defines what the React frontend must send to register/login
 class UserCreate(BaseModel):
@@ -11,5 +14,10 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
-# Fake in-memory database (replace with PostgreSQL/MongoDB later)
-fake_users_db = {}
+class DBUser(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    fullName = Column(String, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
