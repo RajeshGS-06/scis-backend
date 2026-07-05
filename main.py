@@ -12,7 +12,7 @@ app = FastAPI()
 # Crucial for React: Allow frontend to communicate with backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"], # React ports
+    allow_origins=["https://scis-fsvj.vercel.app ", "http://localhost:5173", "http://localhost:3000"], # React ports
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
