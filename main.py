@@ -26,6 +26,7 @@ async def signup(user: UserCreate):
         raise HTTPException(status_code=400, detail="Username already exists")
     
     fake_users_db[user.username] = {
+        "fullname": user.fullname,
         "username": user.username,
         "hashed_password": hash_password(user.password)
     }
@@ -42,7 +43,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    access_token = create_access_token(data={"sub": user_dict["username"]})
+    access_token = create_access_token(data={"sub": user_dict["email"]})
     return {"access_token": access_token, "token_type": "bearer"}
 
 # --- Protected Route Example ---

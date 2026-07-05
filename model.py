@@ -2,6 +2,7 @@ from pydantic import BaseModel
 
 # Defines what the React frontend must send to register/login
 class UserCreate(BaseModel):
+    fullname: str
     username: str
     password: str
 
