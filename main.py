@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,19 +12,18 @@ import schemas
 from database import engine, get_db
 from auth import hash_password, verify_password, create_access_token, SECRET_KEY, ALGORITHM
 import os
-from dotenv import load_dotenv
+
 
 # Create the database tables automatically if they don't exist yet
 model.Base.metadata.create_all(bind=engine)
-
-load_dotenv()  # Load environment variables from .env file
+  # Load environment variables from .env file
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        os.getenv("FRONTEND_URL")  # Default to localhost if FRONTEND_URL is not set         
+        os.getenv("FRONTEND_URL")  # Allow requests from the frontend URL specified in the .env file       
     ],
     allow_credentials=True,
     allow_methods=["*"],
