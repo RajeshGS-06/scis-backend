@@ -2,24 +2,27 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from jose import jwt, JWTError
 
 import model
 import schemas
 from database import engine, get_db
 from auth import hash_password, verify_password, create_access_token, SECRET_KEY, ALGORITHM
+import os
+from dotenv import load_dotenv
 
 # Create the database tables automatically if they don't exist yet
 model.Base.metadata.create_all(bind=engine)
+
+load_dotenv()  # Load environment variables from .env file
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://scis-fsvj.vercel.app", 
-        "http://localhost:5173",         
-        "http://localhost:3000"          
+        os.getenv("FRONTEND_URL")  # Default to localhost if FRONTEND_URL is not set         
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -43,9 +46,14 @@ async def signup(user: schemas.UserCreate, db: Session = Depends(get_db)):
     )
     
     # Add and save to database
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    try:
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Error occurred while registering user")
+    
     return {"message": "User registered successfully"}
 
 @app.post("/login", response_model=schemas.Token)
