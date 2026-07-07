@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 load_dotenv()
-from fastapi import FastAPI, Depends, HTTPException, Request, status
+from fastapi import FastAPI, Depends, HTTPException, Request, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -16,7 +16,10 @@ from slowapi.errors import RateLimitExceeded
 import model
 import schemas
 from database import engine, get_db
-from auth import hash_password, verify_password, create_access_token, SECRET_KEY, ALGORITHM
+from auth import (
+    hash_password, verify_password, create_access_token, SECRET_KEY, ALGORITHM,
+    create_email_verification_token, decode_email_verification_token, send_verification_email
+)
 
 # Create the database tables automatically if they don't exist yet
 model.Base.metadata.create_all(bind=engine)
@@ -27,11 +30,13 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+frontend_urls = os.getenv("FRONTEND_URL", "http://localhost:5173")
+allow_origins = [url.strip() for url in frontend_urls.split(",")]
+FRONTEND_URL_FOR_LINKS = allow_origins[0]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        os.getenv("FRONTEND_URL")
-    ],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,13 +50,11 @@ LOCKOUT_DURATION_MINUTES = 5
 
 @app.post("/signup", status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
-async def signup(request: Request, user: schemas.UserCreate, db: Session = Depends(get_db)):
-    # Query database to see if email exists
+async def signup(request: Request, background_tasks: BackgroundTasks, user: schemas.UserCreate, db: Session = Depends(get_db)):
     db_user = db.query(model.DBUser).filter(model.DBUser.email == user.email).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # Create new user record
     new_user = model.DBUser(
         fullName=user.fullName,
         email=user.email,
@@ -66,7 +69,12 @@ async def signup(request: Request, user: schemas.UserCreate, db: Session = Depen
         db.rollback()
         raise HTTPException(status_code=400, detail="Error occurred while registering user")
 
-    return {"message": "User registered successfully"}
+    token = create_email_verification_token(new_user.email)
+    background_tasks.add_task(
+        send_verification_email, new_user.email, new_user.fullName, token, FRONTEND_URL_FOR_LINKS
+    )
+
+    return {"message": "User registered successfully. Please check your email to verify your account."}
 
 
 @app.post("/login", response_model=schemas.Token)
@@ -81,7 +89,6 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Check if account is currently locked
     if db_user.locked_until and db_user.locked_until > datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_423_LOCKED,
@@ -100,13 +107,50 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Successful login — reset failure tracking
+    if not db_user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Please verify your email before logging in."
+        )
+
     db_user.failed_login_attempts = 0
     db_user.locked_until = None
     db.commit()
 
     access_token = create_access_token(data={"sub": db_user.email})
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.get("/verify-email")
+async def verify_email(token: str, db: Session = Depends(get_db)):
+    email = decode_email_verification_token(token)
+    if not email:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification link")
+
+    db_user = db.query(model.DBUser).filter(model.DBUser.email == email).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if db_user.is_verified:
+        return {"message": "Email already verified"}
+
+    db_user.is_verified = True
+    db.commit()
+    return {"message": "Email verified successfully"}
+
+
+@app.post("/resend-verification")
+@limiter.limit("3/minute")
+async def resend_verification(request: Request, background_tasks: BackgroundTasks, email: schemas.EmailRequest, db: Session = Depends(get_db)):
+    db_user = db.query(model.DBUser).filter(model.DBUser.email == email.email).first()
+
+    if db_user and not db_user.is_verified:
+        token = create_email_verification_token(db_user.email)
+        background_tasks.add_task(
+            send_verification_email, db_user.email, db_user.fullName, token, FRONTEND_URL_FOR_LINKS
+        )
+
+    return {"message": "If an account with that email exists and isn't verified, a new link has been sent."}
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):

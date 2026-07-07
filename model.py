@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, Boolean
 from database import Base
 
 class DBUser(Base):
@@ -10,3 +10,4 @@ class DBUser(Base):
     hashed_password = Column(String, nullable=False)
     failed_login_attempts = Column(Integer, default=0, nullable=False)
     locked_until = Column(DateTime(timezone=True), nullable=True)
+    is_verified = Column(Boolean, default=False, nullable=False)
